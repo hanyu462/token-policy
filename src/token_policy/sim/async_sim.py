@@ -141,12 +141,12 @@ class AsyncSim:
                     cmd = self._controller(self._state)
                     if cmd is not None:
                         self.sim.set_command(*cmd)
+                if self.log is not None:   # (state_k, command computed from it)
+                    self.log.append(self._state, q_target=self.sim.q_target.copy(), band=self.gantry.gain,
+                                    **controller_extras(self._controller))
                 self.sim.step_control()
                 self._state = self.sim.state()
                 self.ticks += 1
-                if self.log is not None:
-                    self.log.append(self._state, q_target=self.sim.q_target.copy(), band=self.gantry.gain,
-                                    **controller_extras(self._controller))
             k += 1
             if rtf > 0:
                 lag = t_wall0 + k * dt / rtf - time.perf_counter()

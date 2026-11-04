@@ -22,19 +22,6 @@ from .paths import SONIC_MODEL_DIR, default_log_path
 from .sim import AsyncConfig, AsyncSim, G1Sim, SyncConfig, SyncSim, hold_pose
 
 
-class RandomFixedResidual:
-    """One delta_z ~ N(0, I) per run, held constant (unscaled; the controller applies the scale)."""
-
-    def __init__(self, seed, dim=64):
-        self.value = np.random.default_rng(seed).standard_normal(dim)
-
-    def reset(self):
-        pass
-
-    def __call__(self, state):
-        return self.value
-
-
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="python -m token_policy", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -110,35 +97,43 @@ def run(args: RunConfig, draw_fns=(), controller=None, on_tick=None) -> dict:
            "controller_name": args.controller, "reference": None, "sonic": None}
 
     # ---- controller ----
-    ref, name = None, args.controller
+    ref, name, hook = None, args.controller, None
     if controller is not None:                      # caller-supplied object
         ref = getattr(controller, "reference", None)
         ctx["controller_name"] = type(controller).__name__
         name = ctx["controller_name"]
     elif args.controller == "sonic":
+        from .policy import RandomSource, ResidualToken
         from .sonic import SonicController, SonicJointController, SonicONNX, load_reference
         ref = load_reference(args.reference)
-        residual = RandomFixedResidual(args.seed) if args.scale != 0 else None
-        controller = SonicJointController(SonicController(SonicONNX(args.model_dir)), ref, residual, args.scale)
+        hook = ResidualToken(RandomSource(args.seed), args.scale) if args.scale != 0 else None
+        controller = SonicJointController(SonicController(SonicONNX(args.model_dir)), ref)   # hook armed at t_play
         name = f"sonic_{ref.name}" + (f"_s{args.scale}_seed{args.seed}" if args.scale else "")
     else:
-        controller = hold_pose()
+        controller, hook = hold_pose(), None
     if ref is not None:
         ctx.update(reference=ref, sonic=controller)
-    t_attach, t_play = args.t_settle, args.t_settle + args.t_hold
+    if hasattr(controller, "reset"):
+        controller.reset()                          # fresh history / heading / reference for every run
+    dt = sim.control_dt
+    k_attach = int(round(args.t_settle / dt))
+    k_play = k_attach + int(round(args.t_hold / dt))
 
     def schedule(handle, st):
-        """Shared timeline; works on SyncSim and AsyncSim through the same four calls."""
-        t = st["time"]
+        """Shared timeline; works on SyncSim and AsyncSim through the same four calls.
+        Uses the control-tick index (sim time is an accumulated float) so events land on exact ticks."""
+        k = int(round(st["time"] / dt))
         if not ctx["attached"]:
-            if hasattr(controller, "observe_only"):
-                controller.observe_only(st)
-            if t >= t_attach:
+            if k >= k_attach:                        # from this tick the controller observes itself
                 handle.attach(controller); ctx["attached"] = True
+            elif hasattr(controller, "observe_only"):
+                controller.observe_only(st)
         elif not args.no_gantry:
-            handle.set_gantry(1.0 - (t - t_attach) / max(args.t_release, 1e-9))
-        if hasattr(controller, "play") and not ctx["played"] and t >= t_play:
+            handle.set_gantry(1.0 - (k - k_attach) * dt / max(args.t_release, 1e-9))
+        if hasattr(controller, "play") and not ctx["played"] and k >= k_play:
             controller.play(); ctx["played"] = True
+            if hook is not None:
+                controller.token_hook = hook          # external token enters from here on
         ctx["band"] = handle.gantry.gain
         ctx["fallen"] = handle.sim.fallen()
         if on_tick is not None:
@@ -169,7 +164,7 @@ def run(args: RunConfig, draw_fns=(), controller=None, on_tick=None) -> dict:
         ss = SyncSim(sim, None, SyncConfig(gantry=not args.no_gantry, viewer=not args.headless, realtime=not args.no_realtime))
         r = ss.run(args.duration, on_tick=schedule, log=rec, draw=draw)
         ticks, t_end, fell = len(r["t"]), r["t"][-1], np.isfinite(r["fell_at"])
-        extra = ""
+        fell_at, extra = r["fell_at"], ""
     else:
         h = AsyncSim(sim, None, AsyncConfig(gantry=not args.no_gantry, realtime_factor=0.0 if args.no_realtime else 1.0), log=rec).start()
         try:
@@ -183,12 +178,15 @@ def run(args: RunConfig, draw_fns=(), controller=None, on_tick=None) -> dict:
         finally:
             h.stop()
         ticks, t_end, fell = h.ticks, h.time, h.sim.fallen()
+        fell_at = h.time if fell else np.nan
         extra = f"  |  wall {time.time() - t_wall0:.2f}s, overruns {h.overruns}"
     a = rec.arrays()
+    a["fell_at"] = fell_at
     print(f"done [{args.mode}]: {ticks} ticks, sim time {t_end:.2f}s, final height {a['base_pos'][-1, 2]:.3f} m, "
           f"fell {'yes' if fell else 'no'}{extra}")
     if args.log is not None:
-        path = rec.save(args.log or default_log_path(name), controller=args.controller, reference=ref.name if ref else "")
+        path = rec.save(args.log or default_log_path(name), controller=args.controller,
+                        reference=ref.name if ref else "", fell_at=fell_at)
         print("saved", path, summarize(a))
     return a
 

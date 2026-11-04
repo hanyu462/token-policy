@@ -68,14 +68,18 @@ class SyncSim:
         return self._state["time"]
 
     # ---- one control tick ----
-    def step(self) -> dict:
-        """controller(state) -> command -> physics for one control period; returns the new state."""
+    def step(self, log: Recorder | None = None) -> dict:
+        """controller(state) -> command -> physics for one control period; returns the new state.
+        ``log``: records (this state, the command computed from it) before the physics step."""
         if self.cfg.gantry and self.cfg.t_release is not None:
             self.gantry.set_gain(1.0 - self.tick * self.sim.control_dt / max(self.cfg.t_release, 1e-9))
         if self.controller is not None:
             cmd = self.controller(self._state)
             if cmd is not None:
                 self.sim.set_command(*cmd)
+        if log is not None:
+            log.append(self._state, q_target=self.sim.q_target.copy(), band=self.gantry.gain,
+                       **controller_extras(self.controller))
         self.sim.step_control()
         self.tick += 1
         self._state = self.sim.state()
@@ -98,7 +102,6 @@ class SyncSim:
             for _ in (range(n) if n is not None else itertools.count()):
                 st = self._state
                 fallen = self.sim.fallen()
-                log.append(st, q_target=self.sim.q_target.copy(), band=self.gantry.gain, **controller_extras(self.controller))
                 if on_tick is not None:
                     on_tick(self, st)
                 if viewer is not None:
@@ -118,7 +121,7 @@ class SyncSim:
                     if self.cfg.stop_on_fall:
                         break
                 with (viewer.lock() if viewer is not None else nullcontext()):   # GUI thread copies mjData
-                    self.step()
+                    self.step(log)
         except KeyboardInterrupt:
             pass
         finally:
