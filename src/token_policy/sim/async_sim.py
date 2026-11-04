@@ -156,8 +156,12 @@ class AsyncSim:
     # ---- optional viewer on the calling (main) thread ----
     def run_viewer(self, on_tick=None, hz: float = 50.0, duration: float | None = None):
         """Block and render until the window is closed, ``stop()`` is called, or sim time passes ``duration``."""
-        viewer = open_viewer(self.sim)
-        self._viewer = viewer
+        # launch_passive touches mjData (mj_forward) on this thread while the sim thread may be
+        # stepping it: open the window with the sim paused, and register the viewer lock before
+        # stepping resumes.
+        with self._lock:
+            viewer = open_viewer(self.sim)
+            self._viewer = viewer
         try:
             while viewer.is_running() and self.running() and (duration is None or self.time < duration):
                 with self._lock:
