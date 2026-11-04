@@ -6,4 +6,4 @@ from .gantry import Gantry, GantryConfig  # noqa: F401
 from .async_sim import AsyncConfig, AsyncSim  # noqa: F401
 from .controllers import hold_pose  # noqa: F401
 from .sync_sim import SyncConfig, SyncSim  # noqa: F401
-from .logger import StateLog  # noqa: F401
+from ..common.recorder import Recorder  # noqa: F401

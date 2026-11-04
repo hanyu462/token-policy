@@ -18,7 +18,7 @@ import numpy as np
 from .g1_params import DEFAULT_ANGLES, KD, KP
 from .g1_sim import G1Sim
 from .gantry import Gantry
-from .logger import StateLog
+from ..common.recorder import Recorder, controller_extras
 from .viewer import close_viewer, open_viewer
 
 
@@ -38,11 +38,11 @@ class AsyncSim:
         latest one at its next tick (later writes overwrite earlier ones)
       - ``state()``: latest snapshot (a copy), never touches the physics
       - ``reset()`` / ``set_gantry()``: queued, applied by the sim thread at its next tick
-      - ``log`` (StateLog): if given, every tick is recorded from inside the sim thread, so nothing is
+      - ``log`` (Recorder): if given, every tick is recorded from inside the sim thread, so nothing is
         missed regardless of how often the outside reads ``state()``
     """
 
-    def __init__(self, sim: G1Sim, controller=None, cfg: AsyncConfig | None = None, log: StateLog | None = None):
+    def __init__(self, sim: G1Sim, controller=None, cfg: AsyncConfig | None = None, log: Recorder | None = None):
         self.sim = sim
         self.cfg = cfg or AsyncConfig()
         self.log = log                    # if given, every tick is appended from the sim thread
@@ -145,7 +145,8 @@ class AsyncSim:
                 self._state = self.sim.state()
                 self.ticks += 1
                 if self.log is not None:
-                    self.log.append(self._state, band=self.gantry.gain)
+                    self.log.append(self._state, q_target=self.sim.q_target.copy(), band=self.gantry.gain,
+                                    **controller_extras(self._controller))
             k += 1
             if rtf > 0:
                 lag = t_wall0 + k * dt / rtf - time.perf_counter()

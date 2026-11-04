@@ -221,7 +221,7 @@ __marimo__/
 
 # downloaded / copied assets: ONNX, meshes, MJCF, motions (see scripts/fetch_assets.sh)
 assets/
-results/*/*.npz
+results/
 
 # MuJoCo crash log
 MUJOCO_LOG.TXT

@@ -16,7 +16,7 @@ import numpy as np
 from .g1_params import DEFAULT_ANGLES, KD, KP
 from .g1_sim import G1Sim
 from .gantry import Gantry
-from .logger import StateLog
+from ..common.recorder import Recorder, controller_extras
 from .viewer import close_viewer, open_viewer
 
 
@@ -82,14 +82,14 @@ class SyncSim:
         return self._state
 
     # ---- batch run ----
-    def run(self, duration: float | None = None, on_tick=None, log: StateLog | None = None, draw=None) -> dict:
+    def run(self, duration: float | None = None, on_tick=None, log: Recorder | None = None, draw=None) -> dict:
         """Reset, then step for ``duration`` seconds (None = until the viewer closes, a fall with
-        stop_on_fall, or Ctrl-C). Returns per-tick arrays (StateLog keys + band) and ``fell_at``.
+        stop_on_fall, or Ctrl-C). Returns per-tick arrays (Recorder keys, q_target, band, controller extras) and ``fell_at``.
 
         ``draw(scn, state)``: optional, called each tick with the viewer's user scene (visual only).
         """
         self.reset()
-        log = log if log is not None else StateLog()
+        log = log if log is not None else Recorder()
         fell_at = None
         n = None if duration is None else int(round(duration / self.sim.control_dt))
         viewer = open_viewer(self.sim) if self.cfg.viewer else None
@@ -98,7 +98,7 @@ class SyncSim:
             for _ in (range(n) if n is not None else itertools.count()):
                 st = self._state
                 fallen = self.sim.fallen()
-                log.append(st, band=self.gantry.gain)
+                log.append(st, q_target=self.sim.q_target.copy(), band=self.gantry.gain, **controller_extras(self.controller))
                 if on_tick is not None:
                     on_tick(self, st)
                 if viewer is not None:

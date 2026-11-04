@@ -67,6 +67,13 @@ class SonicJointController:
     def play(self):
         self.reference.play()
 
+    def log_extras(self) -> dict:
+        """Per-tick values for the sim's Recorder (sim just stores them): token and raw action."""
+        if self.last is None:
+            nan = np.full(self.ctrl.token_dim, np.nan)
+            return {"token": nan, "action": np.full(29, np.nan), "ref_cursor": self.reference.cursor}
+        return {"token": self.last["z"].copy(), "action": self.last["action"].copy(), "ref_cursor": self.reference.cursor}
+
     def __call__(self, state: dict):
         ref = self.ctrl and self.reference
         self.ctrl.observe(state)
