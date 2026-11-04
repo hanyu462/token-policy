@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# downloaded / copied assets: ONNX, meshes, MJCF, motions (see scripts/fetch_assets.sh)
+assets/
+results/*/*.npz
+
+# MuJoCo crash log
+MUJOCO_LOG.TXT
