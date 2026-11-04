@@ -3,26 +3,17 @@
 All positions are world coordinates in metres. Geoms are visual only: nothing here touches
 the physics. Clear and redraw every tick to animate.
 
+    from token_policy.viz import colors
     c = Canvas(viewer.user_scn)
     c.clear()
-    c.sphere([0.3, 0.0, 0.5], 0.03, RED, "here")
+    c.sphere([0.3, 0.0, 0.5], 0.03, colors.RED, "here")
 """
 from __future__ import annotations
 
 import mujoco
 import numpy as np
 
-# (r, g, b, a)
-RED = (1.0, 0.1, 0.1, 1.0)
-GREEN = (0.1, 0.9, 0.1, 1.0)
-BLUE = (0.1, 0.4, 1.0, 1.0)
-YELLOW = (1.0, 0.9, 0.1, 1.0)
-ORANGE = (1.0, 0.5, 0.0, 1.0)
-CYAN = (0.0, 0.8, 0.8, 1.0)
-MAGENTA = (1.0, 0.0, 1.0, 1.0)
-WHITE = (1.0, 1.0, 1.0, 1.0)
-GRAY = (0.6, 0.6, 0.6, 0.8)
-BLACK = (0.0, 0.0, 0.0, 1.0)
+from .colors import BLUE, GREEN, ORANGE, RED, TRANSPARENT, WHITE  # defaults used below
 
 _UP = np.array([0.0, 0.0, 1.0])
 
@@ -78,7 +69,7 @@ class Canvas:
 
     def text(self, pos, s: str):
         """Text only (an invisible point carrying a label)."""
-        return self._geom(mujoco.mjtGeom.mjGEOM_SPHERE, [0.001, 0, 0], pos, None, (0, 0, 0, 0), s)
+        return self._geom(mujoco.mjtGeom.mjGEOM_SPHERE, [0.001, 0, 0], pos, None, TRANSPARENT, s)
 
     # ---- composites ----------------------------------------------------------
     def frame(self, origin, R=None, length=0.2, width=0.01, labels=("x", "y", "z")):
