@@ -1,17 +1,17 @@
-"""SONIC v1.1 ONNX encoder/decoder with a latent-residual injection point.
+"""SONIC v1.1 ONNX encoder/decoder with one external token entry point.
 
 Pipeline (one 50 Hz tick)::
 
-    standing reference ──► encoder obs (g1 mode, 1751) ──► model_encoder.onnx
-        ──► z_stand (64, FSQ-quantized tokens)
-        ──► z = z_stand + scale * delta_z            <-- residual injection
+    reference ──► encoder obs (g1 mode, 1751) ──► model_encoder.onnx
+        ──► z_base (64, FSQ-quantized tokens)
+        ──► z = token_hook(z_base, state)            <-- external token entry (optional)
         ──► decoder obs = [z | his_* proprio history] (994) ──► model_decoder.onnx
         ──► action (29, IsaacLab order) ──► q* = default + action_scale * action
 
-The encoder graph contains the FSQ quantizer (Round ops), the decoder graph is
-a plain MLP, so adding the residual to ``encoded_tokens`` is the same
-operation as ``latent_residual_mode="post_quantization"`` in the training code
-(UniversalTokenModule.forward: ``all_tokens = all_tokens + residual``).
+The encoder graph contains the FSQ quantizer (Round ops) and the decoder graph is a plain
+MLP, so whatever the hook returns is what the decoder sees: adding to z_base equals the
+training code's ``latent_residual_mode="post_quantization"``, returning an unrelated vector
+equals a full token replacement.
 """
 from __future__ import annotations
 
@@ -165,24 +165,16 @@ class SonicONNX:
             raise FloatingPointError("decoder produced non-finite action")
         return a.astype(np.float64)
 
-    # ---- full tick with residual injection -----------------------------------
-    def step(self, ref, base_quat, heading: HeadingState, hist: StateHistory,
-             delta_z: np.ndarray | None = None, scale: float = 0.0, inject: bool = True):
-        """Returns dict with z_stand, z (decoder input), action, action_base.
+    # ---- full tick ---------------------------------------------------------------
+    def step(self, ref, base_quat, heading: HeadingState, hist: StateHistory, token_hook=None, state=None):
+        """Encoder -> token -> (optional external hook) -> decoder.
 
-        ``action_base`` is the decoder output for the *same* proprio history
-        with the un-modified token, so ``q*(z+λδz) - q*(z)`` can be reported.
-        When ``inject`` is False the residual path is bypassed entirely.
+        ``token_hook(z_base, state) -> z_in`` is the single entry point for anything outside SONIC
+        that wants to change the token before the decoder (add a residual, replace it, ...).
+        Returns z_base (encoder output), z (decoder input) and the action.
         """
-        z_stand = self.encode(self.encoder_obs(ref, base_quat, heading))
-        if inject and delta_z is not None:
-            assert delta_z.shape == (self.token_dim,), delta_z.shape
-            z = z_stand + scale * delta_z
-        else:
-            z = z_stand.copy()
+        z_base = self.encode(self.encoder_obs(ref, base_quat, heading))
+        z = z_base if token_hook is None else np.asarray(token_hook(z_base, state), float)
+        assert z.shape == (self.token_dim,), z.shape
         action = self.decode(self.decoder_obs(z, hist))
-        if inject and delta_z is not None and scale != 0.0:
-            action_base = self.decode(self.decoder_obs(z_stand, hist))
-        else:
-            action_base = action.copy()
-        return {"z_stand": z_stand, "z": z, "action": action, "action_base": action_base}
+        return {"z_base": z_base, "z": z, "action": action}
