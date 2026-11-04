@@ -26,11 +26,13 @@ def quat_mul(a, b):
 
 
 def quat_rotate(q, v):
-    """Rotate vector v by quaternion q."""
+    """Rotate vector v by quaternion q: v*(2w^2-1) + 2w*(qv x v) + 2*qv*(qv.v)."""
     qw = q[0]
     qv = np.asarray(q[1:4], dtype=float)
     v = np.asarray(v, dtype=float)
-    return v * (2.0 * qw * qw - 1.0) + np.cross(qv, v) * (2.0 * qw) + qv * (2.0 * np.dot(qv, v))
+    # explicit cross product (np.cross is slow on 3-vectors; same operations, same results)
+    cross = np.array([qv[1] * v[2] - qv[2] * v[1], qv[2] * v[0] - qv[0] * v[2], qv[0] * v[1] - qv[1] * v[0]])
+    return v * (2.0 * qw * qw - 1.0) + cross * (2.0 * qw) + qv * (2.0 * np.dot(qv, v))
 
 
 def quat_from_angle_axis(angle, axis):
