@@ -82,9 +82,12 @@ class SyncSim:
         return self._state
 
     # ---- batch run ----
-    def run(self, duration: float | None = None, on_tick=None, log: StateLog | None = None) -> dict:
+    def run(self, duration: float | None = None, on_tick=None, log: StateLog | None = None, draw=None) -> dict:
         """Reset, then step for ``duration`` seconds (None = until the viewer closes, a fall with
-        stop_on_fall, or Ctrl-C). Returns per-tick arrays (StateLog keys + band) and ``fell_at``."""
+        stop_on_fall, or Ctrl-C). Returns per-tick arrays (StateLog keys + band) and ``fell_at``.
+
+        ``draw(scn, state)``: optional, called each tick with the viewer's user scene (visual only).
+        """
         self.reset()
         log = log if log is not None else StateLog()
         fell_at = None
@@ -101,6 +104,9 @@ class SyncSim:
                 if viewer is not None:
                     if not viewer.is_running():
                         break
+                    if draw is not None:
+                        viewer.user_scn.ngeom = 0
+                        draw(viewer.user_scn, st)
                     viewer.cam.lookat[:] = st["base_pos"]
                     viewer.sync()
                 if self.cfg.realtime:

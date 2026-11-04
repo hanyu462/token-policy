@@ -157,8 +157,11 @@ class AsyncSim:
                 time.sleep(1e-4)   # brief yield so other threads can take the lock
 
     # ---- optional viewer on the calling (main) thread ----
-    def run_viewer(self, on_tick=None, hz: float = 50.0, duration: float | None = None):
-        """Block and render until the window is closed, ``stop()`` is called, or sim time passes ``duration``."""
+    def run_viewer(self, on_tick=None, hz: float = 50.0, duration: float | None = None, draw=None):
+        """Block and render until the window is closed, ``stop()`` is called, or sim time passes ``duration``.
+
+        ``draw(scn, state)``: optional, called before each sync with the viewer's user scene (visual only).
+        """
         # launch_passive touches mjData (mj_forward) on this thread while the sim thread may be
         # stepping it: open the window with the sim paused, and register the viewer lock before
         # stepping resumes.
@@ -169,6 +172,9 @@ class AsyncSim:
         try:
             while viewer.is_running() and self.running() and (duration is None or self.time < duration):
                 with self._lock:
+                    if draw is not None:
+                        viewer.user_scn.ngeom = 0
+                        draw(viewer.user_scn, self._state)
                     viewer.cam.lookat[:] = self.sim.base_pos()
                     viewer.sync()
                 if on_tick is not None:
