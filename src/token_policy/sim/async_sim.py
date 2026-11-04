@@ -54,6 +54,7 @@ class AsyncSim:
         self._pending_gain = None
         self._stop = threading.Event()
         self._viewer = None               # set while run_viewer() is active: physics must hold viewer.lock()
+        self._rebase = False              # ask the loop to restart its wall-clock schedule (after a deliberate pause)
         self._thread = threading.Thread(target=self._loop, name="AsyncSim", daemon=True)
         self.ticks = 0
         self.overruns = 0                 # ticks where the thread fell behind wall clock by > control_dt
@@ -129,6 +130,8 @@ class AsyncSim:
         t_wall0 = time.perf_counter()
         k = 0
         while not self._stop.is_set():
+            if self._rebase:              # e.g. the viewer window was just opened with the sim paused
+                t_wall0, k, self._rebase = time.perf_counter(), 0, False
             # The passive viewer's GUI thread copies mjData on its own; stepping under viewer.lock()
             # keeps it from reading mid-step (otherwise mj_copyDataVisual crashes).
             vlock = self._viewer.lock() if self._viewer is not None else nullcontext()
@@ -160,8 +163,9 @@ class AsyncSim:
         # stepping it: open the window with the sim paused, and register the viewer lock before
         # stepping resumes.
         with self._lock:
-            viewer = open_viewer(self.sim)
+            viewer = open_viewer(self.sim)       # ~0.5 s: window, GL context, mesh upload
             self._viewer = viewer
+            self._rebase = True                  # do not count that pause as lateness
         try:
             while viewer.is_running() and self.running() and (duration is None or self.time < duration):
                 with self._lock:
@@ -173,3 +177,4 @@ class AsyncSim:
         finally:
             self._viewer = None
             close_viewer(viewer)
+            self._rebase = True
