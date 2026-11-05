@@ -78,7 +78,8 @@ class SonicJointController:
             nan = np.full(self.ctrl.token_dim, np.nan)
             return {"token": nan, "token_base": nan, "action": np.full(29, np.nan),
                     "ref_cursor": self.reference.cursor, "q_ref": q_ref}
-        return {"token": self.last["z"].copy(), "token_base": self.last["z_base"].copy(),
+        zb = self.last["z_base"]
+        return {"token": self.last["z"].copy(), "token_base": (np.full(len(self.last["z"]), np.nan) if zb is None else zb.copy()),
                 "action": self.last["action"].copy(), "ref_cursor": self.reference.cursor, "q_ref": q_ref}
 
     def __call__(self, state: dict):

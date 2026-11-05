@@ -97,10 +97,17 @@ def anchor_orientation_heading(ref_root_quat, base_quat, heading: HeadingState,
 
 
 class SonicONNX:
-    def __init__(self, model_dir: str, providers=("CPUExecutionProvider",), threads: int = 4):
+    def __init__(self, model_dir: str, providers=("CPUExecutionProvider",), threads: int = 4,
+                 decoder_backend: str = "onnx", device: str = "cuda"):
         """``threads``: ONNX Runtime intra-op threads. The 150 MB decoder is memory-bound on CPU:
-        measured p50 encoder+decoder 10 ms at 1 thread, 7 ms at 4 (no gain beyond)."""
+        measured p50 encoder+decoder 10 ms at 1 thread, 7 ms at 4 (no gain beyond).
+        ``decoder_backend="torch"``: run the decoder MLP in torch on ``device`` (same weights,
+        ~5e-6 numerical difference, 0.5 ms per call on a GPU instead of ~7 ms on CPU)."""
         self.cfg = SonicObsConfig.load(os.path.join(model_dir, "observation_config.yaml"))
+        self.torch_decoder = None
+        if decoder_backend == "torch":
+            from .torch_decoder import TorchDecoder
+            self.torch_decoder = TorchDecoder.from_onnx(os.path.join(model_dir, "model_decoder.onnx"), device=device)
         so = ort.SessionOptions()
         so.intra_op_num_threads = threads
         self.enc = ort.InferenceSession(os.path.join(model_dir, "model_encoder.onnx"), so, providers=list(providers))
@@ -160,7 +167,10 @@ class SonicONNX:
         return obs
 
     def decode(self, obs: np.ndarray) -> np.ndarray:
-        a = self.dec.run(None, {self.dec_in: obs[None, :].astype(np.float32)})[0][0]
+        if self.torch_decoder is not None:
+            a = self.torch_decoder.decode_numpy(obs[None, :])[0]
+        else:
+            a = self.dec.run(None, {self.dec_in: obs[None, :].astype(np.float32)})[0][0]
         if not np.all(np.isfinite(a)):
             raise FloatingPointError("decoder produced non-finite action")
         return a.astype(np.float64)
@@ -173,7 +183,10 @@ class SonicONNX:
         that wants to change the token before the decoder (add a residual, replace it, ...).
         Returns z_base (encoder output), z (decoder input) and the action.
         """
-        z_base = self.encode(self.encoder_obs(ref, base_quat, heading))
+        if token_hook is not None and not getattr(token_hook, "needs_base", True):
+            z_base = None                                   # hook replaces the token: encoder not needed
+        else:
+            z_base = self.encode(self.encoder_obs(ref, base_quat, heading))
         z = z_base if token_hook is None else np.asarray(token_hook(z_base, state), float)
         assert z.shape == (self.token_dim,), z.shape
         action = self.decode(self.decoder_obs(z, hist))

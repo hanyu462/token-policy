@@ -20,6 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "onnx", "joblib"]
+torch = ["torch", "onnx"]          # decoder_backend="torch" (sonic/torch_decoder.py)
 
 [tool.setuptools.packages.find]
 where = ["src"]
