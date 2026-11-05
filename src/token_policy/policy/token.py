@@ -50,6 +50,8 @@ class ResidualToken:
 
 
 class ReplaceToken:
+    needs_base = False          # the encoder output is not used -> SonicONNX may skip the encoder
+
     def __init__(self, source):
         self.source = source
 
@@ -59,3 +61,30 @@ class ReplaceToken:
 
     def __call__(self, z_base, state):
         return self.source(state)
+
+
+class GridOffsetToken:
+    needs_base = False
+
+    """Teacher action on the FSQ grid: ``k = clip(k_base + delta_k, K_MIN, K_MAX)``, ``z = k / 16``.
+
+    ``k_base`` is a fixed integer token (the quantized standing token saved with the snapshot);
+    ``delta_source(state) -> int array (64,)`` supplies the offset each tick (bounded, not accumulated).
+    """
+
+    def __init__(self, k_base, delta_source):
+        from .fsq import K_MAX, K_MIN, k_to_z
+        self._k_min, self._k_max, self._k_to_z = K_MIN, K_MAX, k_to_z
+        self.k_base = np.asarray(k_base, np.int64).copy()
+        self.delta_source = delta_source
+        self.k_last = self.k_base.copy()
+
+    def reset(self):
+        self.k_last = self.k_base.copy()
+        if hasattr(self.delta_source, "reset"):
+            self.delta_source.reset()
+
+    def __call__(self, z_base, state):
+        dk = np.asarray(self.delta_source(state), np.int64)
+        self.k_last = np.clip(self.k_base + dk, self._k_min, self._k_max)
+        return self._k_to_z(self.k_last)
