@@ -1,5 +1,7 @@
 # Student S0 설계안 — (Text, State) → Z
 
+> 2026-11-05 구현 전 수정(사용자 지시): (1) `phase` 입력 제거 → state 150-D (open-loop 타이머 의존 방지; phase는 나중 ablation만). (2) `prev_token` 유지, 학습 중 `prev_token_dropout = 0.5`(drop된 샘플은 64-D를 0으로). (3) 첫 baseline loss는 L_action + 0.1·L_mag만 (label smoothing 0, ordinal·paraphrase 항은 옵션, 기본 가중 0). (4) 30 cm는 train sampler·정규화·magnitude head·checkpoint 선택·early stopping·튜닝 어디에도 쓰지 않고 validation도 seen distance만. (5) foot contact 정규화는 clip(F, 0, 500)/500 → [0, 1]로 확정(500 N ≈ 체중 1.4배, 한 발 지지 ≈ 0.7). (6) 모델 크기(d_model, num_skill_queries, num_state_layers, num_motion_layers, num_heads, ffn_dim)는 `StudentConfig`로 설정, `StudentConfig.small()` = 256-D 비교용. 아래 본문의 phase·151·label smoothing·L_para 기본값 서술은 이 수정으로 대체된다.
+
 기준 데이터: `results/step_dataset_v2` (124 rollout = 31 s₀ × {20, 25, 30, 35} cm, 각 240~248 tick, `token_k` (T,64) int8, `state_history/*`, `state_start/*`, `k_stand`). Teacher 내부값(λ, cut, search_history)은 Student 입·출력에 쓰지 않는다.
 
 ## 1. 전체 구조
