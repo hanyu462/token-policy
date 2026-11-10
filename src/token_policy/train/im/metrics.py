@@ -1,10 +1,6 @@
-"""Offline token metrics for evaluation / logging only (no gradients).
+"""Task-agnostic offline token metrics for evaluation / logging only (no gradients).
 
-per_sample_metrics is task-agnostic.  summarize still splits by the batch's is_motion flag (motion / hold): a
-compatibility leftover of the STEP_FOOT recipe, to move to student/metrics.py together with the trainer's
-motion-CE checkpoint selection.
-
-Task-specific breakdowns (e.g. STEP_FOOT foot / dx / dy) belong to the recipe that knows the task (student/);
+Task-specific views (motion / hold, STEP_FOOT foot / dx / dy) belong to the recipe that knows the task (student/);
 closed-loop simulator metrics (touchdown error, clearance, drift) need the simulator and are not here.
 """
 from __future__ import annotations
@@ -22,8 +18,5 @@ def per_sample_metrics(logits: torch.Tensor, y: torch.Tensor) -> tuple:
 
 
 def summarize(ev: dict) -> dict:
-    """Means over all / motion / hold samples of an evaluate() result (motion = the batch's is_motion flag)."""
-    m = ev["motion"]
-    return {"ce": float(ev["ce"].mean()), "ce_motion": float(ev["ce"][m].mean()), "ce_hold": float(ev["ce"][~m].mean()),
-            "acc": float(ev["acc"].mean()), "acc_motion": float(ev["acc"][m].mean()), "acc_hold": float(ev["acc"][~m].mean()),
-            "mean_abs_dk": float(ev["dk"].mean())}
+    """Means over all samples of an evaluate() result."""
+    return {"ce": float(ev["ce"].mean()), "acc": float(ev["acc"].mean()), "mean_abs_dk": float(ev["dk"].mean())}

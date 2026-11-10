@@ -102,6 +102,11 @@ def fit_foot_norm(train_rollouts) -> NormStats:
                                                    "n_rollouts": len(train_rollouts)}))
 
 
+def is_motion_tick(t: int) -> bool:
+    """Motion sample = token window + stop transition; later ticks are the hold."""
+    return bool(t < N_WINDOW + MOTION_TAIL)
+
+
 class StepFootDataset(torch.utils.data.Dataset):
     """Same sampling as StepDataset: per epoch n_per_rollout ticks per rollout, 70 % motion / 30 % hold.
 
@@ -143,7 +148,12 @@ class StepFootDataset(torch.utils.data.Dataset):
             x[:, self.prev_sl] = 0.0
         text = render_stepfoot(self.templates[self.rng.integers(len(self.templates))], r.foot, r.dx, r.dy)
         return {"x": torch.from_numpy(x), "y": torch.from_numpy(r.target(t) + 16).long(), "text": text,
-                "tick": t, "is_motion": bool(t < N_WINDOW + MOTION_TAIL), "key": r.meta["key"]}
+                "tick": t, "is_motion": is_motion_tick(t), "key": r.meta["key"]}
+
+    def sample_info(self) -> dict:
+        """Per item, in index order and without using the sampling RNG: is_motion (bool) and rollout key."""
+        return {"motion": np.array([is_motion_tick(t) for _, t in self.items], bool),
+                "key": np.array([self.rollouts[i].meta["key"] for i, _ in self.items])}
 
 
 def command_balanced_counts(base_rollouts, all_rollouts, n_per_rollout: int) -> dict:

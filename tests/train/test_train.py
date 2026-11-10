@@ -95,13 +95,14 @@ def test_evaluate_and_fit(tmp_path):
     model = TokenPolicyModel(CFG)
     ds, val = TinyDS(12, 0), TinyDS(6, 1)
     ev = evaluate(model, val, collate, "cpu", batch=4)
-    assert ev["ce"].shape == (6,) and ev["motion"].sum() == 3 and list(ev["key"]) == [f"r{i}" for i in range(6)]
+    assert set(ev) == {"ce", "acc", "dk"} and ev["ce"].shape == (6,)        # no task metadata in the generic evaluation
     logits = model.eval()(*[collate(val.items)[k] for k in ("H", "mask", "x")])["logits"]
     ce, acc, dk = per_sample_metrics(logits, collate(val.items)["y"])
-    assert np.allclose(ce.numpy(), ev["ce"], atol=1e-5) and set(summarize(ev)) >= {"ce_motion", "acc_hold", "mean_abs_dk"}
+    assert np.allclose(ce.numpy(), ev["ce"], atol=1e-5) and set(summarize(ev)) == {"ce", "acc", "mean_abs_dk"}
     out = fit(model, ds, ds, val, collate, TrainConfig(epochs=2, batch=4, patience=5), str(tmp_path), "cpu",
-              lambda e: ({"val_extra": 1.0}, ", extra"))
+              val_extras=lambda e, d: ({"val_extra": 1.0}, ", extra"))
     assert len(out["curve"]) == 2 and out["curve"][0]["val_extra"] == 1.0
+    assert out["best"] == min(r["val_ce"] for r in out["curve"])          # default criterion: lowest val ce
     ck = torch.load(tmp_path / "best.pt")
     assert {"model", "config", "epoch", "val", "optimizer", "scheduler", "global_step"} <= set(ck)
     m2, _ = load_model(str(tmp_path / "best.pt"))
@@ -128,3 +129,23 @@ def test_models_depend_only_on_common():
         for node in ast.walk(ast.parse(f.read_text())):
             if isinstance(node, ast.ImportFrom) and node.level >= 2:
                 assert (node.module or "").split(".")[0] in ("common",), (f, node.module)
+
+
+def test_selection_metric_and_mode(tmp_path):
+    """Caller-defined criterion: highest val accuracy, with a task summary computed from the dataset."""
+    torch.manual_seed(0); np.random.seed(0)
+    model = TokenPolicyModel(CFG)
+    ds, val = TinyDS(12, 0), TinyDS(6, 1)
+    seen = []
+
+    def summ(ev, d):
+        seen.append(len(d))
+        return {"acc": float(ev["acc"].mean()), "odd_acc": float(ev["acc"][1::2].mean())}
+
+    out = fit(model, ds, ds, val, collate, TrainConfig(epochs=3, batch=4, patience=5), str(tmp_path), "cpu",
+              summarize=summ, selection_metric=lambda va: va["odd_acc"], selection_mode="max")
+    accs = [r["val_odd_acc"] for r in out["curve"]]
+    assert out["best"] == max(accs) and out["best_epoch"] == 1 + int(np.argmax(accs)) and 6 in seen
+    assert torch.load(tmp_path / "best.pt")["epoch"] == out["best_epoch"]
+    with pytest.raises(ValueError):
+        fit(model, ds, ds, val, collate, TrainConfig(epochs=1, batch=4), str(tmp_path), "cpu", selection_mode="up")
